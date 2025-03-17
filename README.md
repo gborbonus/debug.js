@@ -25,7 +25,9 @@ Whether you're debugging a complex app or just need a quick way to monitor logs,
   - Network errors and completions (fetch and XHR).
 - **Pretty-Printed Objects**: Objects logged to the UI are displayed in a readable, indented format, while raw data is preserved for JSON export.
 - **Minimal Footprint**: Runs as an IIFE (Immediately Invoked Function Expression) with no external dependencies.
-- **Toggleable UI**: A floating bug icon (`�`) toggles the debug panel on and off.
+- **Toggleable UI**: A floating firebug icon (shown below) toggles the debug panel on and off:
+
+  ![Firebug Icon](./firebug.PNG)
 
 ## Installation
 
@@ -58,7 +60,7 @@ for (let i = 0; i < 1000; i++) { /* work */ }
 console.timeEnd("Loop"); // Logs "Loop: X.XXms" in "Info" tab
 ```
 
-- Click the `�` icon to open the debug panel.
+- Click the firebug icon (shown above) to open the debug panel.
 - Switch between tabs to view different log types.
 - Use the search bar to filter logs.
 - Click "Copy as JSON" to export all logs.
