@@ -124,6 +124,4 @@ Modify the source to add features like:
 
 `debug.js` was developed with the assistance of **Grok**, an AI created by xAI, which helped refine its logic, optimize its structure, and ensure a robust feature set. Contributions and feedback are welcome!
 
-## License
 
-Feel free to use, modify, and distribute `debug.js` under the [MIT License](LICENSE) (or your preferred license—add it if you choose!).
