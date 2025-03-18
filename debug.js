@@ -1,5 +1,41 @@
 (function () {
-    // Buffer for raw data (used for JSON copying)
+    // Save the original Error for reference
+    const OriginalError = window.Error;
+
+    // Custom Error class that logs to debug UI
+    class DebugError extends OriginalError {
+        constructor(message, fileName, lineNumber, options) {
+            super(message, fileName, lineNumber);
+            this.name = 'DebugError';
+            const logMessage = message || 'Unknown Error';
+            const errorDetails = {
+                stack: this.stack || 'No stack available',
+                constructed: new Date().toISOString()
+            };
+            // Capture cause if provided (ES2022+)
+            if (options?.cause) {
+                errorDetails.cause = options.cause instanceof Error
+                    ? { message: options.cause.message, stack: options.cause.stack }
+                    : String(options.cause);
+            }
+            // Capture all enumerable properties
+            Object.getOwnPropertyNames(this).forEach(key => {
+                if (key !== 'message' && key !== 'stack' && key !== 'name') {
+                    errorDetails[key] = this[key];
+                }
+            });
+            if (window.DebugLog) {
+                window.DebugLog.log('errors', logMessage, Object.keys(errorDetails).length ? errorDetails : undefined);
+            }
+            if (Error.captureStackTrace) {
+                Error.captureStackTrace(this, DebugError);
+            }
+        }
+    }
+
+    // Replace the global Error constructor
+    window.Error = DebugError;
+
     const logBuffer = { verbose: [], info: [], warnings: [], errors: [], debug: [], trace: [] };
     const unreadCounts = { verbose: 0, info: 0, warnings: 0, errors: 0, debug: 0, trace: 0 };
     const timers = {};
@@ -115,10 +151,10 @@
 
     function log(type, message, data) {
         const timestamp = new Date().toISOString();
-        const entry = { 
-            timestamp, 
-            message, // Store raw message (string or object)
-            data: data || undefined // Store raw additional data if provided
+        const entry = {
+            timestamp,
+            message,
+            data: data || undefined
         };
         logBuffer[type].push(entry);
         if (type !== currentTab) unreadCounts[type]++;
@@ -130,25 +166,36 @@
         const output = container.querySelector('div[style*="overflow-y"]');
         const searchText = container.querySelector('input').value.toLowerCase();
         output.innerHTML = '';
-        
+
         logBuffer[currentTab].forEach(entry => {
             let displayMessage = entry.message;
             if (typeof entry.message === 'object' && entry.message !== null) {
-                displayMessage = JSON.stringify(entry.message, null, 2); // Format for UI
+                displayMessage = JSON.stringify(entry.message, null, 2);
             }
-            let displayData = entry.data ? `: ${typeof entry.data === 'object' ? JSON.stringify(entry.data, null, 2) : entry.data}` : '';
-            
+            let displayData = '';
+            if (entry.data) {
+                if (typeof entry.data === 'object' && entry.data !== null) {
+                    // Format stack with <br> for line breaks
+                    if (entry.data.stack) {
+                        entry.data.stack = entry.data.stack.replace(/\n/g, '<br>');
+                    }
+                    displayData = `: ${JSON.stringify(entry.data, null, 2)}`;
+                } else {
+                    displayData = `: ${entry.data}`;
+                }
+            }
+
             const text = `${entry.timestamp} - ${displayMessage}${displayData}`;
             if (!searchText || text.toLowerCase().includes(searchText)) {
                 const div = document.createElement('div');
                 applyStyles(div, defaultStyles.logEntry, { color: defaultStyles[currentTab]?.color });
-                div.textContent = text;
+                // Use innerHTML to render <br> tags
+                div.innerHTML = text;
                 output.appendChild(div);
             }
         });
         output.scrollTop = output.scrollHeight;
     }
-
     function updateNotifications() {
         const tabs = container.querySelectorAll('button[data-tab]');
         tabs.forEach(tab => {
@@ -173,19 +220,63 @@
     }
 
     const originalConsole = { ...console };
-    console.log = (...args) => { log('verbose', args[0], args.slice(1)[0]); originalConsole.log(...args); };
-    console.info = (...args) => { log('info', args[0], args.slice(1)[0]); originalConsole.info(...args); };
-    console.warn = (...args) => { log('warnings', args[0], args.slice(1)[0]); originalConsole.warn(...args); };
+    console.log = (...args) => {
+        if (args[0] instanceof OriginalError) {
+            log('errors', args[0].message, { stack: args[0].stack || 'No stack available', details: args.slice(1)[0] });
+        } else {
+            log('verbose', args[0], args.slice(1)[0]);
+        }
+        originalConsole.log(...args);
+    };
+    console.info = (...args) => {
+        if (args[0] instanceof OriginalError) {
+            log('errors', args[0].message, { stack: args[0].stack || 'No stack available', details: args.slice(1)[0] });
+        } else {
+            log('info', args[0], args.slice(1)[0]);
+        }
+        originalConsole.info(...args);
+    };
+    console.warn = (...args) => {
+        if (args[0] instanceof OriginalError) {
+            log('errors', args[0].message, { stack: args[0].stack || 'No stack available', details: args.slice(1)[0] });
+        } else {
+            log('warnings', args[0], args.slice(1)[0]);
+        }
+        originalConsole.warn(...args);
+    };
     console.error = (...args) => {
-        const error = args[0] instanceof Error ? args[0] : new Error(args[0]);
-        log('errors', error.message, {
-            stack: error.stack || 'No stack available',
-            details: args.length > 1 ? JSON.stringify(args.slice(1), null, 2) : undefined
-        });
+        let message = args[0];
+        let details = {};
+        if (args[0] instanceof OriginalError) {
+            message = args[0].message;
+            details.stack = args[0].stack || 'No stack available';
+        } else if (typeof args[0] === 'string') {
+            message = args[0];
+        } else {
+            message = String(args[0]);
+        }
+        if (args.length > 1) {
+            details.details = args.slice(1);
+        }
+        log('errors', message, Object.keys(details).length ? details : undefined);
         originalConsole.error(...args);
     };
-    console.debug = (...args) => { log('debug', args[0], args.slice(1)[0]); originalConsole.debug(...args); };
-    console.trace = (...args) => { log('trace', args[0], args.slice(1)[0]); originalConsole.trace(...args); };
+    console.debug = (...args) => {
+        if (args[0] instanceof OriginalError) {
+            log('errors', args[0].message, { stack: args[0].stack || 'No stack available', details: args.slice(1)[0] });
+        } else {
+            log('debug', args[0], args.slice(1)[0]);
+        }
+        originalConsole.debug(...args);
+    };
+    console.trace = (...args) => {
+        if (args[0] instanceof OriginalError) {
+            log('errors', args[0].message, { stack: args[0].stack || 'No stack available', details: args.slice(1)[0] });
+        } else {
+            log('trace', args[0], args.slice(1)[0]);
+        }
+        originalConsole.trace(...args);
+    };
     console.time = (label) => { timers[label] = performance.now(); originalConsole.time(label); };
     console.timeEnd = (label) => {
         const time = performance.now() - (timers[label] || 0);
@@ -200,7 +291,7 @@
             source: source,
             line: lineno,
             column: colno,
-            stack: error ? error.stack : 'No stack trace available (error object not provided)'
+            stack: error ? error.stack : 'No stack trace available'
         });
         return false;
     };
@@ -210,7 +301,7 @@
         log('errors', 'Uncaught Promise Rejection', {
             message: error.message || 'No message provided',
             stack: error.stack || 'No stack trace available',
-            reason: error instanceof Error ? error.toString() : JSON.stringify(error, null, 2)
+            reason: error instanceof OriginalError ? error.toString() : JSON.stringify(error, null, 2)
         });
     });
 
